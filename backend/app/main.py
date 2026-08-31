@@ -1,10 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app.auth.model import User
 from app.auth.web import router as auth_router
-from app.config import IMAGE_DIR
 from app.database.database import Base
 from app.database.database import engine
 from app.imagerag.web import router as imagerag_router
@@ -41,15 +39,6 @@ app.include_router(
 
 app.include_router(
     imagerag_router
-)
-
-
-app.mount(
-    "/images",
-    StaticFiles(
-        directory=str(IMAGE_DIR)
-    ),
-    name="images",
 )
 
 
