@@ -1,0 +1,47 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    container_name: image-rag-backend
+
+    env_file:
+      - ./backend/.env
+
+    volumes:
+      - ${IMAGE_HOST_PATH:-./backend/images}:/app/images:ro
+
+    expose:
+      - "8000"
+
+    restart: unless-stopped
+
+    networks:
+      - image-rag-network
+
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+
+    container_name: image-rag-nginx
+
+    ports:
+      - "80:80"
+
+    depends_on:
+      - backend
+
+    restart: unless-stopped
+
+    networks:
+      - image-rag-network
+
+
+networks:
+  image-rag-network:
+    driver: bridge
