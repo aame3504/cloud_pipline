@@ -83,100 +83,107 @@ pipeline {
                     string(
                         credentialsId: 'openai-api-key',
                         variable: 'OPENAI_API_KEY'
+                    ),
+
+                    file(
+                        credentialsId: 'ea5cfc92-f35f-4e56-bcdc-cee6c35d09c8',
+                        variable: 'SSH_KEY'
                     )
                 ]) {
-                    sshagent(
-                        credentials: ['173f2ee3-9063-48ab-8118-f521b13c02ed']
-                    ) {
-                        sh '''
-                            ssh \
-                                -o StrictHostKeyChecking=no \
-                                ${AWS_USER}@${AWS_HOST} \
-                                "
-                                    mkdir -p ${PROJECT_DIR}
-                                    mkdir -p ${IMAGE_DIR}
+                    sh '''
+                        chmod 600 "$SSH_KEY"
 
-                                    if [ ! -d '${PROJECT_DIR}/.git' ]; then
-                                        rm -rf ${PROJECT_DIR}
+                        ssh \
+                            -i "$SSH_KEY" \
+                            -o StrictHostKeyChecking=no \
+                            ${AWS_USER}@${AWS_HOST} \
+                            "
+                                mkdir -p ${IMAGE_DIR}
 
-                                        git clone \
-                                            -b ${GITHUB_BRANCH} \
-                                            ${GITHUB_REPO} \
-                                            ${PROJECT_DIR}
-                                    fi
-                                "
-                        '''
+                                if [ ! -d '${PROJECT_DIR}/.git' ]; then
+                                    rm -rf ${PROJECT_DIR}
 
-                        sh '''
-                            ssh \
-                                -o StrictHostKeyChecking=no \
-                                ${AWS_USER}@${AWS_HOST} \
-                                "
-                                    cd ${PROJECT_DIR}
+                                    git clone \
+                                        -b ${GITHUB_BRANCH} \
+                                        ${GITHUB_REPO} \
+                                        ${PROJECT_DIR}
+                                fi
+                            "
+                    '''
 
-                                    git fetch origin
+                    sh '''
+                        ssh \
+                            -i "$SSH_KEY" \
+                            -o StrictHostKeyChecking=no \
+                            ${AWS_USER}@${AWS_HOST} \
+                            "
+                                cd ${PROJECT_DIR}
 
-                                    git reset \
-                                        --hard \
-                                        origin/${GITHUB_BRANCH}
+                                git fetch origin
 
-                                    mkdir -p ${IMAGE_DIR}
-                                "
-                        '''
+                                git reset \
+                                    --hard \
+                                    origin/${GITHUB_BRANCH}
 
-                        sh '''
-                            set +x
+                                mkdir -p ${IMAGE_DIR}
+                            "
+                    '''
 
-                            printf 'OPENAI_API_KEY=%s\\n' \
-                                "$OPENAI_API_KEY" \
-                                > backend.env
+                    sh '''
+                        set +x
 
-                            printf 'IMAGE_HOST_PATH=%s\\n' \
-                                "$IMAGE_DIR" \
-                                > root.env
+                        printf 'OPENAI_API_KEY=%s\\n' \
+                            "$OPENAI_API_KEY" \
+                            > backend.env
 
-                            set -x
-                        '''
+                        printf 'IMAGE_HOST_PATH=%s\\n' \
+                            "$IMAGE_DIR" \
+                            > root.env
 
-                        sh '''
-                            scp \
-                                -o StrictHostKeyChecking=no \
-                                backend.env \
-                                ${AWS_USER}@${AWS_HOST}:${PROJECT_DIR}/backend/.env
+                        set -x
+                    '''
 
-                            scp \
-                                -o StrictHostKeyChecking=no \
-                                root.env \
-                                ${AWS_USER}@${AWS_HOST}:${PROJECT_DIR}/.env
-                        '''
+                    sh '''
+                        scp \
+                            -i "$SSH_KEY" \
+                            -o StrictHostKeyChecking=no \
+                            backend.env \
+                            ${AWS_USER}@${AWS_HOST}:${PROJECT_DIR}/backend/.env
 
-                        sh '''
-                            rm -f \
-                                backend.env \
-                                root.env
-                        '''
+                        scp \
+                            -i "$SSH_KEY" \
+                            -o StrictHostKeyChecking=no \
+                            root.env \
+                            ${AWS_USER}@${AWS_HOST}:${PROJECT_DIR}/.env
+                    '''
 
-                        sh '''
-                            ssh \
-                                -o StrictHostKeyChecking=no \
-                                ${AWS_USER}@${AWS_HOST} \
-                                "
-                                    cd ${PROJECT_DIR}
+                    sh '''
+                        rm -f \
+                            backend.env \
+                            root.env
+                    '''
 
-                                    docker compose down \
-                                        --remove-orphans
+                    sh '''
+                        ssh \
+                            -i "$SSH_KEY" \
+                            -o StrictHostKeyChecking=no \
+                            ${AWS_USER}@${AWS_HOST} \
+                            "
+                                cd ${PROJECT_DIR}
 
-                                    docker compose up \
-                                        -d \
-                                        --build
+                                docker compose down \
+                                    --remove-orphans
 
-                                    docker image prune \
-                                        -f
+                                docker compose up \
+                                    -d \
+                                    --build
 
-                                    docker compose ps
-                                "
-                        '''
-                    }
+                                docker image prune \
+                                    -f
+
+                                docker compose ps
+                            "
+                    '''
                 }
             }
         }
