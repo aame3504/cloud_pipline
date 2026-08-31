@@ -1,4 +1,4 @@
-pipeline {
+﻿pipeline {
     agent any
 
     environment {
@@ -31,19 +31,16 @@ pipeline {
                     echo "================================"
                     echo "Project files"
                     echo "================================"
-
                     ls -la
 
                     echo "================================"
                     echo "Backend"
                     echo "================================"
-
                     ls -la backend
 
                     echo "================================"
                     echo "Frontend"
                     echo "================================"
-
                     ls -la frontend
                 '''
             }
@@ -89,7 +86,7 @@ pipeline {
                     )
                 ]) {
                     sshagent(
-                        credentials: ['aws-ec2-ssh']
+                        credentials: ['173f2ee3-9063-48ab-8118-f521b13c02ed']
                     ) {
                         sh '''
                             ssh \
