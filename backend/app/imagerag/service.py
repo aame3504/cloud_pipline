@@ -4,8 +4,13 @@ import mimetypes
 
 from openai import OpenAI
 
-from app.config import IMAGE_DIR, OPENAI_API_KEY
+from app.config import OPENAI_API_KEY
 from app.imagerag.schema import ImageRagResponse, ImageRagResult
+from app.storage.s3 import (
+    get_image_url,
+    list_categories,
+    list_images,
+)
 
 
 client = OpenAI(
@@ -14,14 +19,13 @@ client = OpenAI(
 
 
 def get_food_categories() -> list[str]:
-    if not IMAGE_DIR.exists():
-        return []
+    try:
+        return list_categories()
 
-    return sorted(
-        folder.name
-        for folder in IMAGE_DIR.iterdir()
-        if folder.is_dir()
-    )
+    except Exception as error:
+        raise RuntimeError(
+            f"S3 음식 카테고리 조회 실패: {error}"
+        ) from error
 
 
 def encode_image(
@@ -37,11 +41,6 @@ def find_reference_images(
     limit: int = 5,
 ) -> list[str]:
 
-    folder = IMAGE_DIR / food_name
-
-    if not folder.exists():
-        return []
-
     extensions = {
         ".jpg",
         ".jpeg",
@@ -49,27 +48,58 @@ def find_reference_images(
         ".webp",
     }
 
-    images = [
-        file
-        for file in folder.iterdir()
-        if (
-            file.is_file()
-            and file.suffix.lower() in extensions
+    try:
+        s3_images = list_images(
+            food_name
         )
+
+    except Exception as error:
+        raise RuntimeError(
+            f"S3 참고 이미지 목록 조회 실패: {error}"
+        ) from error
+
+    valid_images = [
+        image
+        for image in s3_images
+        if (
+            "." + image["filename"]
+            .rsplit(".", 1)[-1]
+            .lower()
+        ) in extensions
     ]
 
-    images.sort()
+    valid_images.sort(
+        key=lambda image: image["key"]
+    )
 
-    return [
-        f"/images/{food_name}/{file.name}"
-        for file in images[:limit]
-    ]
+    reference_images = []
+
+    for image in valid_images[:limit]:
+        try:
+            url = get_image_url(
+                image["relative_key"],
+                expires_in=3600,
+            )
+
+            reference_images.append(
+                url
+            )
+
+        except Exception as error:
+            raise RuntimeError(
+                f"S3 Presigned URL 생성 실패 "
+                f"({image['relative_key']}): {error}"
+            ) from error
+
+    return reference_images
 
 
 def find_matching_folder(
     predicted_food: str,
     categories: list[str],
 ) -> str | None:
+
+    predicted_food = predicted_food.strip()
 
     if predicted_food in categories:
         return predicted_food
@@ -91,9 +121,15 @@ def find_matching_folder(
             return category
 
     for category in categories:
+        category_normalized = (
+            category
+            .replace(" ", "")
+            .lower()
+        )
+
         if (
-            category in predicted_food
-            or predicted_food in category
+            category_normalized in normalized
+            or normalized in category_normalized
         ):
             return category
 
@@ -109,7 +145,7 @@ def analyze_image(
 
     if not categories:
         raise RuntimeError(
-            f"음식 이미지 폴더가 없습니다: {IMAGE_DIR}"
+            "S3 images/ 경로에 음식 카테고리가 없습니다."
         )
 
     mime_type, _ = mimetypes.guess_type(
@@ -170,13 +206,22 @@ food_name은 반드시 제공된 카테고리 중 하나여야 합니다.
         ],
     )
 
-    result_text = response.output_text.strip()
+    result_text = (
+        response.output_text
+        .strip()
+    )
 
     if result_text.startswith("```"):
         result_text = (
             result_text
-            .replace("```json", "")
-            .replace("```", "")
+            .replace(
+                "```json",
+                "",
+            )
+            .replace(
+                "```",
+                "",
+            )
             .strip()
         )
 
@@ -185,15 +230,17 @@ food_name은 반드시 제공된 카테고리 중 하나여야 합니다.
             result_text
         )
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as error:
         raise RuntimeError(
             f"OpenAI 응답 JSON 파싱 실패: {result_text}"
-        )
+        ) from error
 
-    predicted_food = result_json.get(
-        "food_name",
-        "",
-    )
+    predicted_food = str(
+        result_json.get(
+            "food_name",
+            "",
+        )
+    ).strip()
 
     matched_folder = find_matching_folder(
         predicted_food,
@@ -208,19 +255,40 @@ food_name은 반드시 제공된 카테고리 중 하나여야 합니다.
             limit=5,
         )
 
+    confidence = result_json.get(
+        "confidence",
+        0.0,
+    )
+
+    try:
+        confidence = float(
+            confidence
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        confidence = 0.0
+
+    confidence = max(
+        0.0,
+        min(
+            1.0,
+            confidence,
+        ),
+    )
+
     return ImageRagResponse(
         success=True,
         result=ImageRagResult(
             food_name=predicted_food,
-            confidence=float(
+            confidence=confidence,
+            description=str(
                 result_json.get(
-                    "confidence",
-                    0.0,
+                    "description",
+                    "",
                 )
-            ),
-            description=result_json.get(
-                "description",
-                "",
             ),
             matched_folder=matched_folder,
             reference_images=reference_images,
