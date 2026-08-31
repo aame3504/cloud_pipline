@@ -9,37 +9,72 @@ services:
     env_file:
       - ./backend/.env
 
-    volumes:
-      - ${IMAGE_HOST_PATH:-./backend/images}:/app/images:ro
+    environment:
+      REDIS_URL: redis://redis:6379/0
 
     expose:
       - "8000"
 
-    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
 
     networks:
       - image-rag-network
+
+    restart: unless-stopped
+
+
+  redis:
+    image: redis:7-alpine
+
+    container_name: image-rag-redis
+
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+
+    expose:
+      - "6379"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+    networks:
+      - image-rag-network
+
+    restart: unless-stopped
 
 
   nginx:
     build:
       context: .
       dockerfile: nginx/Dockerfile
+
       args:
         VITE_API_BASE_URL: ""
 
     container_name: image-rag-nginx
 
-    ports:
-      - "80:80"
-
     depends_on:
       - backend
 
-    restart: unless-stopped
+    ports:
+      - "80:80"
 
     networks:
       - image-rag-network
+
+    restart: unless-stopped
 
 
 networks:

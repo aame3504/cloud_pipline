@@ -2,7 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.auth.model import User
+from app.auth.web import router as auth_router
 from app.config import IMAGE_DIR
+from app.database.database import Base
+from app.database.database import engine
 from app.imagerag.web import router as imagerag_router
 
 
@@ -17,12 +21,23 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
+Base.metadata.create_all(
+    bind=engine
+)
+
+
+app.include_router(
+    auth_router
+)
 
 app.include_router(
     imagerag_router
@@ -43,5 +58,11 @@ def root():
     return {
         "message": "Image RAG API",
         "docs": "/docs",
-        "endpoint": "/api/imagerag/search",
+        "endpoints": {
+            "signup": "/api/auth/signup",
+            "login": "/api/auth/login",
+            "me": "/api/auth/me",
+            "logout": "/api/auth/logout",
+            "image_rag": "/api/imagerag/search",
+        },
     }

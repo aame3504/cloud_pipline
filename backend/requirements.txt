@@ -5,3 +5,9 @@ python-dotenv
 python-multipart
 pydantic
 boto3
+sqlalchemy
+psycopg2-binary
+bcrypt
+PyJWT
+email-validator
+redis

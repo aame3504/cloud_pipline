@@ -2,6 +2,8 @@ FROM jenkins/jenkins:lts-jdk21
 
 USER root
 
+ARG DOCKER_GID=986
+
 RUN apt-get update \
     && apt-get install -y \
         ca-certificates \
@@ -9,10 +11,13 @@ RUN apt-get update \
         git \
         openssh-client \
         docker.io \
-        docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -f docker \
+RUN if getent group docker; then \
+        groupmod -g ${DOCKER_GID} docker; \
+    else \
+        groupadd -g ${DOCKER_GID} docker; \
+    fi \
     && usermod -aG docker jenkins
 
 USER jenkins

@@ -2,20 +2,12 @@ pipeline {
     agent any
 
     environment {
-        AWS_HOST = '3.35.199.52'
-        AWS_USER = 'ubuntu'
+        DEPLOY_HOST = '3.35.199.52'
+        DEPLOY_USER = 'ubuntu'
+        DEPLOY_DIR = '/home/ubuntu/project'
 
-        PROJECT_DIR = '/home/ubuntu/project'
-        IMAGE_DIR = '/home/ubuntu/image-rag-data/images'
-
-        GITHUB_REPO = 'https://github.com/aame3504/cloud_pipline.git'
-        GITHUB_BRANCH = 'main'
-    }
-
-    options {
-        timestamps()
-        disableConcurrentBuilds()
-        skipDefaultCheckout(true)
+        GIT_REPOSITORY = 'https://github.com/aame3504/cloud_pipline.git'
+        GIT_BRANCH = 'main'
     }
 
     stages {
@@ -25,66 +17,70 @@ pipeline {
             }
         }
 
-        stage('Check Project') {
+
+        stage('Check Files') {
             steps {
                 sh '''
-                    echo "================================"
-                    echo "Project files"
-                    echo "================================"
-                    ls -la
+                    echo "===== PROJECT FILES ====="
+                    find . -maxdepth 3 -type f | sort
 
-                    echo "================================"
-                    echo "Backend"
-                    echo "================================"
-                    ls -la backend
-
-                    echo "================================"
-                    echo "Frontend"
-                    echo "================================"
-                    ls -la frontend
+                    echo "===== DOCKER COMPOSE ====="
+                    docker compose version
                 '''
             }
         }
 
-        stage('Build Test') {
-            steps {
-                withCredentials([
-                    string(
-                        credentialsId: 'openai-api-key',
-                        variable: 'OPENAI_API_KEY'
-                    )
-                ]) {
-                    sh '''
-                        set +x
 
-                        printf 'OPENAI_API_KEY=%s\\n' \
-                            "$OPENAI_API_KEY" \
-                            > backend/.env
-
-                        printf 'IMAGE_HOST_PATH=%s\\n' \
-                            "$IMAGE_DIR" \
-                            > .env
-
-                        set -x
-
-                        docker compose config
-
-                        echo "================================"
-                        echo "Docker Compose configuration OK"
-                        echo "================================"
-                    '''
-                }
-            }
-        }
-
-        stage('Deploy AWS') {
+        stage('Prepare Environment') {
             steps {
                 withCredentials([
                     string(
                         credentialsId: 'openai-api-key',
                         variable: 'OPENAI_API_KEY'
                     ),
+                    string(
+                        credentialsId: 'database-url',
+                        variable: 'DATABASE_URL'
+                    ),
+                    string(
+                        credentialsId: 'jwt-secret-key',
+                        variable: 'JWT_SECRET_KEY'
+                    )
+                ]) {
+                    sh '''
+                        mkdir -p backend
 
+                        {
+                            printf 'OPENAI_API_KEY=%s\\n' "$OPENAI_API_KEY"
+                            printf 'DATABASE_URL=%s\\n' "$DATABASE_URL"
+                            printf 'JWT_SECRET_KEY=%s\\n' "$JWT_SECRET_KEY"
+                            printf 'AWS_REGION=ap-northeast-2\\n'
+                            printf 'S3_BUCKET_NAME=aame-s3-pipeline\\n'
+                            printf 'S3_IMAGE_PREFIX=images/\\n'
+                            printf 'REDIS_URL=redis://redis:6379/0\\n'
+                        } > backend/.env
+                    '''
+                }
+            }
+        }
+
+
+        stage('Build Test') {
+            steps {
+                sh '''
+                    echo "===== DOCKER COMPOSE CONFIG TEST ====="
+
+                    docker compose config > /dev/null
+
+                    echo "DOCKER COMPOSE CONFIG OK"
+                '''
+            }
+        }
+
+
+        stage('Deploy AWS') {
+            steps {
+                withCredentials([
                     file(
                         credentialsId: 'ea5cfc92-f35f-4e56-bcdc-cee6c35d09c8',
                         variable: 'SSH_KEY'
@@ -96,143 +92,137 @@ pipeline {
                         ssh \
                             -i "$SSH_KEY" \
                             -o StrictHostKeyChecking=no \
-                            ${AWS_USER}@${AWS_HOST} \
+                            "$DEPLOY_USER@$DEPLOY_HOST" \
                             "
-                                mkdir -p ${IMAGE_DIR}
+                            set -e
 
-                                if [ ! -d '${PROJECT_DIR}/.git' ]; then
-                                    rm -rf ${PROJECT_DIR}
+                            if [ ! -d '$DEPLOY_DIR/.git' ]; then
+                                rm -rf '$DEPLOY_DIR'
 
-                                    git clone \
-                                        -b ${GITHUB_BRANCH} \
-                                        ${GITHUB_REPO} \
-                                        ${PROJECT_DIR}
-                                fi
+                                git clone \
+                                    --branch '$GIT_BRANCH' \
+                                    '$GIT_REPOSITORY' \
+                                    '$DEPLOY_DIR'
+                            fi
+
+                            cd '$DEPLOY_DIR'
+
+                            git fetch origin
+
+                            git reset \
+                                --hard \
+                                'origin/$GIT_BRANCH'
+
+                            mkdir -p backend
                             "
-                    '''
-
-                    sh '''
-                        ssh \
-                            -i "$SSH_KEY" \
-                            -o StrictHostKeyChecking=no \
-                            ${AWS_USER}@${AWS_HOST} \
-                            "
-                                cd ${PROJECT_DIR}
-
-                                git fetch origin
-
-                                git reset \
-                                    --hard \
-                                    origin/${GITHUB_BRANCH}
-
-                                mkdir -p ${IMAGE_DIR}
-                            "
-                    '''
-
-                    sh '''
-                        set +x
-
-                        printf 'OPENAI_API_KEY=%s\\n' \
-                            "$OPENAI_API_KEY" \
-                            > backend.env
-
-                        printf 'IMAGE_HOST_PATH=%s\\n' \
-                            "$IMAGE_DIR" \
-                            > root.env
-
-                        set -x
-                    '''
-
-                    sh '''
-                        scp \
-                            -i "$SSH_KEY" \
-                            -o StrictHostKeyChecking=no \
-                            backend.env \
-                            ${AWS_USER}@${AWS_HOST}:${PROJECT_DIR}/backend/.env
 
                         scp \
                             -i "$SSH_KEY" \
                             -o StrictHostKeyChecking=no \
-                            root.env \
-                            ${AWS_USER}@${AWS_HOST}:${PROJECT_DIR}/.env
-                    '''
+                            backend/.env \
+                            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/backend/.env"
 
-                    sh '''
-                        rm -f \
-                            backend.env \
-                            root.env
-                    '''
-
-                    sh '''
                         ssh \
                             -i "$SSH_KEY" \
                             -o StrictHostKeyChecking=no \
-                            ${AWS_USER}@${AWS_HOST} \
+                            "$DEPLOY_USER@$DEPLOY_HOST" \
                             "
-                                cd ${PROJECT_DIR}
+                            set -e
 
-                                docker compose down \
-                                    --remove-orphans
+                            cd '$DEPLOY_DIR'
 
-                                docker compose up \
-                                    -d \
-                                    --build
+                            docker compose down \
+                                --remove-orphans
 
-                                docker image prune \
-                                    -f
+                            docker compose up \
+                                -d \
+                                --build
 
-                                docker compose ps
+                            docker image prune \
+                                -f
+
+                            echo '===== CONTAINERS ====='
+
+                            docker compose ps
                             "
                     '''
                 }
             }
         }
 
+
         stage('Health Check') {
             steps {
                 sh '''
-                    echo "================================"
-                    echo "Waiting for application"
-                    echo "================================"
+                    echo "Waiting for application startup..."
 
-                    sleep 10
+                    sleep 15
 
                     curl \
                         --fail \
-                        --retry 10 \
-                        --retry-delay 3 \
-                        --retry-connrefused \
-                        http://${AWS_HOST}/
+                        --silent \
+                        --show-error \
+                        "http://$DEPLOY_HOST/" \
+                        > /dev/null
 
-                    echo ""
-                    echo "================================"
-                    echo "Health Check OK"
-                    echo "================================"
+                    echo "FRONTEND HEALTH CHECK OK"
+
+                    curl \
+                        --fail \
+                        --silent \
+                        --show-error \
+                        "http://$DEPLOY_HOST/docs" \
+                        > /dev/null
+
+                    echo "BACKEND HEALTH CHECK OK"
                 '''
+            }
+        }
+
+
+        stage('Redis Check') {
+            steps {
+                withCredentials([
+                    file(
+                        credentialsId: 'ea5cfc92-f35f-4e56-bcdc-cee6c35d09c8',
+                        variable: 'SSH_KEY'
+                    )
+                ]) {
+                    sh '''
+                        chmod 600 "$SSH_KEY"
+
+                        ssh \
+                            -i "$SSH_KEY" \
+                            -o StrictHostKeyChecking=no \
+                            "$DEPLOY_USER@$DEPLOY_HOST" \
+                            "
+                            cd '$DEPLOY_DIR'
+
+                            docker compose exec \
+                                -T \
+                                redis \
+                                redis-cli \
+                                ping
+                            "
+                    '''
+                }
             }
         }
     }
 
+
     post {
         success {
-            echo '================================'
             echo 'AWS DEPLOY SUCCESS'
-            echo '================================'
         }
 
         failure {
-            echo '================================'
             echo 'AWS DEPLOY FAILED'
-            echo '================================'
         }
 
         always {
             sh '''
-                rm -f \
-                    backend.env \
-                    root.env \
-                    backend/.env \
-                    .env
+                rm -f backend/.env
             '''
         }
     }

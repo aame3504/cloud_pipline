@@ -30,6 +30,23 @@ S3_IMAGE_PREFIX = os.getenv(
     "images/",
 )
 
+DATABASE_URL = os.getenv(
+    "DATABASE_URL"
+)
+
+REDIS_URL = os.getenv(
+    "REDIS_URL",
+    "redis://localhost:6379/0",
+)
+
+JWT_SECRET_KEY = os.getenv(
+    "JWT_SECRET_KEY"
+)
+
+JWT_ALGORITHM = "HS256"
+
+JWT_EXPIRE_MINUTES = 60 * 24
+
 
 if not OPENAI_API_KEY:
     raise RuntimeError(
@@ -39,4 +56,14 @@ if not OPENAI_API_KEY:
 if not S3_BUCKET_NAME:
     raise RuntimeError(
         "S3_BUCKET_NAME이 설정되어 있지 않습니다."
+    )
+
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL이 설정되어 있지 않습니다."
+    )
+
+if not JWT_SECRET_KEY:
+    raise RuntimeError(
+        "JWT_SECRET_KEY가 설정되어 있지 않습니다."
     )
