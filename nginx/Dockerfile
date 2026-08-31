@@ -1,17 +1,17 @@
-FROM node:latest AS frontend-builder
+FROM node:24-alpine AS frontend-builder
 
 WORKDIR /frontend
 
-COPY frontend/package*.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 
-RUN npm install
+RUN npm ci
 
 COPY frontend/ ./
 
 ARG VITE_API_BASE_URL=""
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
-RUN npm run build
+RUN node ./node_modules/vite/bin/vite.js build
 
 
 FROM nginx:alpine

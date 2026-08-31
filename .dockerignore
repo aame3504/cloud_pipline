@@ -1,0 +1,16 @@
+.git
+.gitignore
+.idea
+.vscode
+
+backend/.env
+backend/images
+backend/__pycache__
+backend/**/*.pyc
+backend/.venv
+
+frontend/node_modules
+frontend/dist
+
+jenkins
+*.log
